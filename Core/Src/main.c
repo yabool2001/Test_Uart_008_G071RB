@@ -144,6 +144,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* I found couple of threads that deal with this situation and they suggested to implement HAL_UART_ErrorCallback() and clear the ORE.
+	   * https://community.st.com/s/question/0D50X00009ZEOZ3SAP/nucleo-f767zi-system-freeze-upon-uart-ore-interrupt
+	   */
 	  __HAL_UART_CLEAR_OREFLAG ( &huart2 ) ;
 	  __HAL_UART_CLEAR_IDLEFLAG ( &huart2 ) ;
 	  send2uart ( &huart2 , gn_mostrecent_at_comm , gn_mostrecent_answer ) ;
