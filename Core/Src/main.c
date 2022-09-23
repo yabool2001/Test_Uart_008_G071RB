@@ -34,10 +34,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define UART_TX_TIMEOUT				100
-#define UART_RX_TIMEOUT				100
+#define UART_RX_TIMEOUT				300
 #define UART_RX_XL_TIMEOUT			5000
-#define RX_BUFF_SIZE				200
-#define TX_BUFF_SIZE				250
+#define RX_BUFF_SIZE				50
+#define TX_BUFF_SIZE				60
 #define PW_BUFF_SIZE				5
 #define GN_BUFF_SIZE				35
 #define TD_PAYLOAD_BUFF_SIZE		90
@@ -90,6 +90,8 @@ static void MX_TIM16_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void 		send2uart 				( UART_HandleTypeDef* , const char* , const char* ) ;
+void		nulling_array 			( uint8_t* array , size_t size ) ;
+void 		wait_for_tim14x			( uint8_t ) ;
 void 		wait_for_tim16x			( uint8_t ) ;
 /* USER CODE END PFP */
 
@@ -132,8 +134,8 @@ int main(void)
   MX_TIM16_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  __HAL_TIM_CLEAR_IT ( &htim16 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
+  //__HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
+  //__HAL_TIM_CLEAR_IT ( &htim16 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
 
   uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) hello , strlen ( hello ) , UART_TX_TIMEOUT ) ;
 
@@ -147,12 +149,12 @@ int main(void)
 	  /* I found couple of threads that deal with this situation and they suggested to implement HAL_UART_ErrorCallback() and clear the ORE.
 	   * https://community.st.com/s/question/0D50X00009ZEOZ3SAP/nucleo-f767zi-system-freeze-upon-uart-ore-interrupt
 	   */
-	  __HAL_UART_CLEAR_OREFLAG ( &huart2 ) ;
-	  __HAL_UART_CLEAR_IDLEFLAG ( &huart2 ) ;
+	  //__HAL_UART_CLEAR_OREFLAG ( &huart2 ) ;
+	  //__HAL_UART_CLEAR_IDLEFLAG ( &huart2 ) ;
 	  send2uart ( &huart2 , gn_mostrecent_at_comm , gn_mostrecent_answer ) ;
 	  //__HAL_UART_CLEAR_OREFLAG ( &huart2 ) ;
 	  //__HAL_UART_CLEAR_IDLEFLAG ( &huart2 ) ;
-	  wait_for_tim16x ( 1 ) ;
+	  wait_for_tim14x ( 2 ) ;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -434,29 +436,50 @@ static void MX_GPIO_Init(void)
 
 void send2uart ( UART_HandleTypeDef* huart , const char* at_command , const char* answer )
 {
-	sprintf ( (char*) tx_buff , "%s" , at_command ) ;
-	uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
-	tx_buff[0] = 0 ;
-	uart_status = HAL_UART_Receive ( huart , rx_buff , sizeof ( rx_buff ) , UART_RX_TIMEOUT ) ;
-	//uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , UART_RX_TIMEOUT ) ;
-	tim16_on = 1 ;
-	HAL_TIM_Base_Start_IT ( &htim16 ) ;
-	while ( tim16_on )
+	/*
+	1. sposób zastosować malloc
+	2. upewnić się, że wszędzie gdzie trzeba mam \0 na końcu
+	3. albo coś z tymi cast jest nie tak, które namiętnie stosuję
+	*/
+
+	uint8_t* uart_rx_buff = malloc ( 99 * sizeof (uint8_t) ) ;
+	uint8_t* uart_tx_buff = malloc ( 99 * sizeof (uint8_t) ) ;
+
+	sprintf ( (char*) uart_tx_buff , "%s" , at_command ) ;
+	//__HAL_UART_SEND_REQ ( huart , UART_RXDATA_FLUSH_REQUEST ) ; //https://community.st.com/s/question/0D53W00000oXKU2SAO/efficient-way-to-process-usartreceived-data-and-flush-rx-buffer-
+	uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
+	uart_status = HAL_UART_Receive ( huart , uart_rx_buff , /*sizeof ( uart_rx_buff )*/99 , UART_RX_TIMEOUT ) ;
+	if ( strncmp ( (char*) uart_rx_buff , answer , strlen ( answer ) ) == 0 )
 	{
-		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
-		{
-			sprintf ( (char*) tx_buff , "Yes. %s" , rx_buff ) ;
-			uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) tx_buff ,  strlen ( (char*) rx_buff ) , UART_TX_TIMEOUT ) ;
-			tx_buff[0] = 0 ;
-			break ;
-		}
-		uart_status = HAL_UART_Receive ( huart , rx_buff , sizeof ( rx_buff ) , UART_RX_TIMEOUT ) ;
-		//uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , UART_RX_TIMEOUT ) ;
+		sprintf ( (char*) uart_tx_buff , "Yes. %s" , uart_rx_buff ) ;
+		uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_rx_buff ) , UART_TX_TIMEOUT ) ;
 	}
-	sprintf ( (char*) tx_buff , "No. %s" , rx_buff ) ;
-	uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
-	tx_buff[0] = 0 ;
-	rx_buff[0] = 0 ;
+	else
+	{
+		//sprintf ( (char*) tx_buff , "No. %s" , rx_buff ) ;
+		//uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
+	}
+	free ( uart_rx_buff ) ;
+	free ( uart_tx_buff ) ;
+	//nulling_array ( tx_buff , sizeof ( tx_buff ) ) ;
+	//nulling_array ( rx_buff , sizeof ( rx_buff ) ) ;
+}
+
+void nulling_array ( uint8_t* array , size_t size )
+{
+	for ( uint8_t i = 0 ; i < size ; i++ ) { array[i] = 0 ; }
+}
+
+void wait_for_tim14x ( uint8_t x )
+{
+	uint8_t i ;
+	for ( i = 0 ; i < x ; i++ )
+	{
+		tim14_on = 1 ;
+		HAL_TIM_Base_Start_IT ( &htim14 ) ;
+		while ( tim14_on )
+			__NOP () ;
+	}
 }
 
 void wait_for_tim16x ( uint8_t x )
