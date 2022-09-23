@@ -446,7 +446,7 @@ void send2uart ( UART_HandleTypeDef* huart , const char* at_command , const char
 	uint8_t* uart_tx_buff = malloc ( 99 * sizeof (uint8_t) ) ;
 
 	sprintf ( (char*) uart_tx_buff , "%s" , at_command ) ;
-	//__HAL_UART_SEND_REQ ( huart , UART_RXDATA_FLUSH_REQUEST ) ; //https://community.st.com/s/question/0D53W00000oXKU2SAO/efficient-way-to-process-usartreceived-data-and-flush-rx-buffer-
+	__HAL_UART_SEND_REQ ( huart , UART_RXDATA_FLUSH_REQUEST ) ; //https://community.st.com/s/question/0D53W00000oXKU2SAO/efficient-way-to-process-usartreceived-data-and-flush-rx-buffer-
 	uart_status = HAL_UART_Transmit ( huart , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
 	uart_status = HAL_UART_Receive ( huart , uart_rx_buff , /*sizeof ( uart_rx_buff )*/99 , UART_RX_TIMEOUT ) ;
 	if ( strncmp ( (char*) uart_rx_buff , answer , strlen ( answer ) ) == 0 )
